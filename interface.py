@@ -1,5 +1,5 @@
 import curses
-from menu_handler import draw_main_menu,draw_settings_menu
+from menu_handler import  manage_settings, draw_menu
 from setup import setup_database
 
 def main(stdscr):
@@ -16,10 +16,11 @@ def main(stdscr):
 
     while True:
         # Draw the main menu
-        choice = draw_main_menu(stdscr, width)
+        #choice = draw_main_menu(stdscr, width)
+        choice = draw_menu(stdscr,width,menu_title="Main Menu",menu_options=["Settings", "Go Live", "Reports", "Quit ATS"],lastinput_key="q")
 
         if choice == ord('0'):
-            draw_settings_menu(stdscr, width)
+            manage_settings(stdscr, width)
             stdscr.addstr(height-1,2,f"Settings chosen {[height-1,width]}")
         elif choice == ord('1'):
             stdscr.addstr(15,2,"Live chosen")

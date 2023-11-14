@@ -39,6 +39,7 @@ and simply copy & paste the following sql commands:\n\n""")
         CREATE TABLE strategies (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
             description TEXT,
             target_weight NUMERIC,
             min_weight NUMERIC,
