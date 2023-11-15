@@ -44,6 +44,7 @@ and simply copy & paste the following sql commands:\n\n""")
             target_weight NUMERIC,
             min_weight NUMERIC,
             max_weight NUMERIC,
+            params JSONB,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
