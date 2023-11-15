@@ -1,5 +1,5 @@
 # menu_handler.py
-import curses
+import curses, textwrap, importlib.util
 from supabase import create_client
 from dotenv import load_dotenv
 import os
@@ -183,7 +183,8 @@ def manage_settings(stdscr, width):
         elif choice == ord('1'):
             # Fetch strategies from Supabase
             strategies = supabase.table("strategies").select("*").execute()
-            
+            stdscr.clear()
+
             # if no strategy in Supabase
             if len(strategies.data) == 0:
                 draw_menu(stdscr,width,"Strategies",["Add a Strategy","Back to Settings"])
@@ -196,16 +197,39 @@ def manage_settings(stdscr, width):
                     elif sub_choice == ord('b'):
                         break
             else:
-                # Display strategies and allow the user to manage them
-                pass
+                stdscr.addstr(0, 0, "=" * width)
+                title = "Multi Strategy Automated Trading System by Lange Invest"
+                stdscr.addstr(1, (width - len(title)) // 2, title)
+                stdscr.addstr(2, 0, "=" * width)
+                header = "Strategy List                 -                 Allocation"
+                stdscr.addstr(5, (width // 2) - len(header) // 2, header)
+                stdscr.addstr(6, (width // 2) - len(header) // 2, "-" * len(header))  # Underline the header
+                line = 8
+
+                for strat,i in zip(strategies.data,range(1,len(strategies.data)+1)):
+                    name = strat['name']
+                    symbol = strat['symbol']
+                    target_weight = strat['target_weight']
+                    display_line = f"{i}. {name} ({symbol})".ljust(40) + f"{target_weight}%".rjust(15)
+                    stdscr.addstr(line, (width // 2) - len(header) // 2, display_line)
+                    line += 1
         
+            stdscr.addstr(line + 5, (width // 2) - len(header) // 2, "b. back")
+            stdscr.refresh()
+
+            while True:
+                sub_choice = stdscr.getch()
+                if sub_choice == ord('b'):
+                    break
+                elif sub_choice in [ord(str(i)) for i in range(1, len(strategies.data) + 1)]:
+                        strategy_num = int(chr(sub_choice))
+                        strategy_section = f'Strategy{strategy_num}'
+                        manage_strategy(stdscr,strategy_section, width)
+
         # Add a Strategy Option
         elif choice == ord('2'):
-            # Call a function to add a new strategy
-            # This function would interact with Supabase to insert a new strategy
-            pass
-        
-        # Back Option
+            add_strategy(stdscr)
+            draw_menu(stdscr,width,menu_title="Settings Menu",menu_options=["General Settings", "Strategy Settings", "Add a Strategy", "Back to Main Menu"])
         elif choice == ord('b'):
             break  # Exit settings menu
 
@@ -214,39 +238,226 @@ def manage_settings(stdscr, width):
         # Include a small delay to reduce rapid looping
         curses.napms(20)
 
-def draw_general_settings(stdscr, width):
+def manage_strategy(stdscr, strategy_section, width):
+    needs_update = True
+
+    # Define the width for the description
+    description_width = width - 4  # Adjust the width as needed for your interface
+
+    while True:
+        if needs_update:
+            stdscr.clear()
+            strategy_params = load_and_initialize_strategy_params(config, settings_file, strategy=strategy_section)
+            stdscr.addstr(2, 2, f"Editing Strategy: {strategy_name}")
+            stdscr.addstr(4, 2, "Parameter".ljust(15) + "Name".ljust(40) + "Value".ljust(30))
+            stdscr.addstr(5, 2, "-" * (15 + 40 + 30))  # Heading underline
+
+            line = 6
+            for param_id, details in strategy_params.items():
+                stdscr.addstr(line, 2, f"{param_id}".ljust(15) + f"{details['name']}".ljust(40) + f"{details['value']}".ljust(30))
+                line += 2
+                
+                # Wrap the description text to fit into the specified width
+                wrapped_description = textwrap.fill(details['description'], description_width)
+                description_lines = wrapped_description.split('\n')
+                
+                for desc_line in description_lines:
+                    stdscr.addstr(line, 4, desc_line)
+                    line += 1
+                
+                stdscr.addstr(line, 2, "-" * (15 + 40 + 30))
+                line += 1
+
+            stdscr.addstr(line + 1, 2, "Press the parameter number to edit, 'w' to change the weight, or 'b' to go back.")
+            stdscr.addstr(line + 3, 2, "Press 'd' to delete this strategy.")
+            stdscr.refresh()
+            needs_update = False
+
+        param_choice = stdscr.getch()
+        if param_choice in [ord(str(i)) for i in range(1, len(strategy_params) + 1)]:
+            param_num = int(chr(param_choice))
+            param_key = f"param{param_num}"
+            edit_param(stdscr, config, settings_file, strategy_section, param_key, width)
+            needs_update = True  # Mark to update the display after editing
+
+        elif param_choice == ord('w'):
+            edit_weight(stdscr, config, settings_file, strategy_section, width)
+            needs_update = True  # Mark to update the display after editing
+
+        elif param_choice == ord('d'):
+            delete_strategy(stdscr,config, settings_file, strategy_section)
+            needs_update = True  # Mark to update the display after deletion, which will also exit the loop
+
+        elif param_choice == ord('b'):
+            break  # Exit the while loop to go back
+
+
+def edit_param(stdscr, config, settings_file, strategy_section, param_key, width):
+    # Clear the screen before displaying anything new
     stdscr.clear()
-    stdscr.addstr(0, 0, "=" * width)
-    title = "Multi Strategy Automated Trading System by Lange Invest"
-    stdscr.addstr(1, (width - len(title)) // 2, title)
-    stdscr.addstr(2, 0, "=" * width)
 
-    # Menu title
-    menu_title = "============== General Settings =============="
-    stdscr.addstr(6, (width - len(menu_title)) // 2, menu_title)
-    
-    # Menu options centered within the width of 'menu_title'
-    settings_options = ["Change Port for IBKR Connection", "Back to Settings Menu"]
-    menu_title_width = len(menu_title) - 4  # Adjust for the side bars " | "
-    menu_start_x = (width - len(menu_title)) // 2  # Starting x position based on the menu title
+    # Disable nodelay to make sure getch() and getstr() block for input
+    stdscr.nodelay(False)
 
-    for i, option in enumerate(settings_options[:-1]):
-        # Center each option within the width of 'menu_title'
-        option_text = f"{option}".center(menu_title_width-1)
-        stdscr.addstr(7 + i, menu_start_x, f"| {i+1}." + option_text + "|")
-    stdscr.addstr(7 + len(settings_options)-1, menu_start_x, f"| b." + f"{settings_options[-1]}".center(menu_title_width-1) + "|")
+    # Retrieve the current value and description of the parameter
+    param_name = config[strategy_section][param_key + '_name']
+    current_value = config[strategy_section][param_key + '_value']
+    description = config[strategy_section][param_key + '_description']
 
-    # Bottom bar with the same length as 'menu_title' without the text
-    bottom_bar = "=" * (max(len(menu_title), len(max(settings_options, key=len)) + 6))  # Adjust bottom bar length
-    menu_start_x = (width - len(bottom_bar)) // 2  # Calculate starting x position
-    stdscr.addstr(9, menu_start_x, bottom_bar)
+    # Prompt user for new value
+    stdscr.addstr(2, 2, f"Editing {param_name} (Current Value: {current_value})")
+    stdscr.addstr(4, 2, description)
+    stdscr.addstr(6, 2, f"Enter new value for {param_name}: ")
+
+    # Enable echoing of input to show the user what they're typing
+    curses.echo()
+
+    # Get the new value from the user
+    new_value = stdscr.getstr(6, len(f"Enter new value for {param_name}: ") + 2, 20).decode('utf-8')
+
+    # Disable echoing of input after getting the input
+    curses.noecho()
+
+    # Validate and save the new value if needed, then update the configuration
+    try:
+        # Convert the new value to the appropriate type and validate it
+        new_value = int(new_value)  # Example: converting to integer
+        if new_value <= 0:
+            raise ValueError("The value must be positive.")
+
+        # Update the configuration
+        config[strategy_section][param_key + '_value'] = str(new_value)
+        with open(settings_file, 'w') as configfile:
+            config.write(configfile)
+        stdscr.addstr(8, 2, "Value updated successfully.")
+    except ValueError as e:
+        stdscr.addstr(8, 2, f"Invalid input: {e}")
+
+    # Refresh to show the update and then wait for a key press to return
     stdscr.refresh()
+    stdscr.getch()  # Now this should block since nodelay is set to False
 
-    choice = stdscr.getch()
-    return choice
+    # If necessary, re-enable nodelay after getting the input
+    stdscr.nodelay(True)
+
+def edit_weight(stdscr, config, settings_file, strategy_section, width):
+    stdscr.clear()
+    stdscr.nodelay(False)
+    # Prompt the user to enter a new weight
+    prompt = "Enter new weight (0-100): "
+    stdscr.addstr(20, 2, prompt)
+    stdscr.refresh()
+    curses.echo()
+    new_weight = stdscr.getstr(20, 2 + len(prompt), 5).decode('utf-8')
+    stdscr.nodelay(True)
+    # Validate the new weight
+    try:
+        new_weight = int(new_weight)
+        if not 0 <= new_weight <= 100:
+            raise ValueError
+    except ValueError:
+        stdscr.addstr(22, 2, "Invalid weight. Please enter a number between 0 and 100.")
+        stdscr.refresh()
+        curses.napms(2000)  # Wait 2 seconds
+        return
+
+    # Update the settings.ini file with the new weight
+    config.set(strategy_section, 'allocation', str(new_weight))
+    with open(settings_file, 'w') as configfile:
+        config.write(configfile)
+
+def delete_strategy(stdscr, config, settings_file, strategy_section):
+    stdscr.clear()
+    # Confirm with the user
+    stdscr.addstr(20, 2, f"Are you sure you want to delete the strategy '{config[strategy_section]['name']}'? (y/n): ")
+    stdscr.refresh()
+    stdscr.nodelay(False)
+    confirmation = stdscr.getch()
+    if confirmation in [ord('y'), ord('Y')]:
+        # Remove the section from settings.ini
+        config.remove_section(strategy_section)
+        strategy_count = config.getint('DEFAULT', 'strategycount') - 1
+        config.set('DEFAULT', 'strategycount', str(strategy_count))
+
+        with open(settings_file, 'w') as configfile:
+            config.write(configfile)
+
+        # Call delete_strategy_from_supabase from helper_functions.py to delete supabase entry in strategies table
+        delete_strategy_from_supabase(strategy_count)
+
+        stdscr.addstr(22, 2, "Strategy deleted successfully.")
+        stdscr.refresh()
+        curses.napms(2000)  # Wait 2 seconds
+    else:
+        stdscr.addstr(22, 2, "Deletion canceled.")
+        stdscr.refresh()
+        curses.napms(2000)  # Wait 2 seconds
+    stdscr.nodelay(True)
+
+def load_and_initialize_strategy_params(config, settings_file, strategy):
+    strategy_params = {}
+
+    # Extract the filename from the config
+    strategy_file = config.get(strategy, 'filename', fallback=None)
+
+    if not strategy_file:
+        print(f"No strategy file specified for {strategy}.")
+        return strategy_params
+
+    try:
+        # Load the strategy module from the given file name
+        module_name = os.path.splitext(strategy_file)[0]
+        module_path = os.path.join('strategies', strategy_file)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        strategy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(strategy_module)
+
+        # Check if PARAMS dictionary exists and has content
+        if hasattr(strategy_module, 'PARAMS') and strategy_module.PARAMS:
+            default_params = strategy_module.PARAMS
+        else:
+            raise ImportError(f"No editable parameters found for strategy {strategy}.")
+
+    except ImportError as e:
+        # If strategy file not found or PARAMS not defined, notify the user and exit
+        print(str(e))
+        return strategy_params
+
+    # Ensure the configuration file section exists
+    if not config.has_section(strategy):
+        config.add_section(strategy)
+
+    # Initialize or update parameters in the config
+    for param_id, details in default_params.items():
+        for key in ['name', 'value', 'description']:
+            config_key = f'param{param_id}_{key}'
+            if not config.has_option(strategy, config_key):
+                config.set(strategy, config_key, str(details[key]))
+
+    # Save the changes to the settings file
+    with open(settings_file, 'w') as configfile:
+        config.write(configfile)
+
+    # Load the parameters from the config to a dictionary
+    for param_id, details in default_params.items():
+        strategy_params[param_id] = {
+            'name': config.get(strategy, f'param{param_id}_name'),
+            'value': config.get(strategy, f'param{param_id}_value'),
+            'description': config.get(strategy, f'param{param_id}_description')
+        }
+
+    return strategy_params
+
+def delete_strategy_from_supabase(strategy_id):
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    supabase = create_client(url, key)
+
+    # Delete the strategy from the 'strategies' table
+    supabase.table("strategies").delete().eq("id", strategy_id).execute()
+    print(f"Strategy with ID {strategy_id} deleted successfully from Supabase.")
 
 def change_port(stdscr, width):
-    
     curses.echo()
     win = curses.newwin(10, 50, 5, (width - 50) // 2)  # Adjust size and position as needed
     win.box()
@@ -282,4 +493,3 @@ def change_port(stdscr, width):
     win.getch()  # Wait for user input before closing the window
     win.clear()
     win.refresh()
-

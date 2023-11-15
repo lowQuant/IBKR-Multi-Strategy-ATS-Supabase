@@ -32,4 +32,3 @@ def main(stdscr):
 
 # Run the program
 curses.wrapper(main)
-
