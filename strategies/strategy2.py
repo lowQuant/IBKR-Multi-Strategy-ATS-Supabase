@@ -1,5 +1,5 @@
 import time
-# from shared_resources import add_log, start_event
+from shared_resources import add_log, start_event
 
 PARAMS = {
     1:{'name':'BOGUS1','value': 111,
@@ -11,12 +11,12 @@ PARAMS = {
     4:{'name':'Fixed Income Weight','value':90,'description':'Weight for FI allocation'},
 }
 
-# def strategy2():
-#     add_log("Strategy2 Thread Started")
-#     start_event.wait()
-#     add_log("Executing Strategy 2")
-#     while True:
-#         time.sleep(9)
-#         add_log("S2: Placing a Buy Order in AAPL")
+def run():
+    add_log("Strategy2 Thread Started")
+    start_event.wait()
+    add_log("Executing Strategy 2")
+    while True:
+        time.sleep(9)
+        add_log("S2: Placing a Buy Order in AAPL")
 
     

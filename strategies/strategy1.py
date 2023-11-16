@@ -1,7 +1,7 @@
 import time
-import pandas as pd
-import datetime as dt
-# from shared_resources import ib, add_log, start_event
+# import pandas as pd
+# import datetime as dt
+from shared_resources import add_log, start_event #ib, add_log, start_event
 
 PARAMS = {
     1:{'name':'Monthly Trendfilter','value': 10,
@@ -11,6 +11,8 @@ PARAMS = {
     3:{'name':'Equity Weight','value':30,'description':'Weight for equity allocation'},
     4:{'name':'Fixed Income Weight','value':90,'description':'Weight for FI allocation'},
 }
+
+
 
 # class Strategy:
 #     def __init__(self,ib):
@@ -97,13 +99,12 @@ PARAMS = {
 #             self.execute_position_adjustments()
 #             time.sleep(10)  # Wait for 10 seconds before checking again
 
-# def strategy1(Strategy):
-#     strategy = Strategy()
-#     try:
-#         add_log("Strategy1 Thread Started")
-#         strategy.run()
-#     except KeyboardInterrupt:
-#         add_log("Strategy1 Thread Stopped")
-#         strategy.running = False  # Set running to False to stop the loop
+def run():
+    start_event.wait()
+    add_log("Strategy1 Thread Started")
+    while True:
+        time.sleep(2)
+        add_log("S1: Placing a Buy Order in AAPL")
+        #strategy.running = False  # Set running to False to stop the loop
 
 

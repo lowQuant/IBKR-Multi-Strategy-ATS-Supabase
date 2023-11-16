@@ -11,6 +11,23 @@ url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_KEY")
 supabase = create_client(url, key)
 
+def load_strategy(strategy_file):
+    """
+    Dynamically loads a strategy module from the given filename.
+    """
+    module_name = os.path.splitext(strategy_file)[0]
+    module_path = os.path.join('strategies', strategy_file)  # Adjust the path as necessary
+
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return module
+
+def get_strategies(): 
+    strategies = supabase.table("strategies").select("*").execute().data
+    return strategies
+
 def draw_menu(stdscr, width,menu_title:str,menu_options: list, lastinput_key:str="b"):
     stdscr.clear()
     # Header

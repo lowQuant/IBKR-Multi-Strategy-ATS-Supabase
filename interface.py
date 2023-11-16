@@ -1,14 +1,9 @@
 import curses, time
-from menu_handler import  manage_settings, draw_menu
-from setup import setup_database
-import shared_resources
+import threading
 
-def display_logs(stdscr, width):
-    with shared_resources.log_lock:
-        logs = list(shared_resources.log_buffer)[-5:]  # Get the last 5 logs
-    y_pos = stdscr.getmaxyx()[0] - len(logs) - 1  # Start from the bottom of the screen
-    for i, log in enumerate(reversed(logs)):
-        stdscr.addstr(y_pos + i, 0, log.ljust(width))
+from setup import setup_database
+from menu_handler import  manage_settings, draw_menu, load_strategy, get_strategies
+from shared_resources import add_log, log_buffer, log_lock, start_event
 
 def main(stdscr):
     # Run the database setup check
@@ -19,14 +14,36 @@ def main(stdscr):
     stdscr.nodelay(True)
     stdscr.clear()
     curses.curs_set(0)  # Hide the cursor
+    stdscr.refresh()
 
     # Get the screen width
     height, width = stdscr.getmaxyx()
 
+     # Create a separate window for logs at the bottom of the screen
+    log_win = curses.newwin(9, width, height - 9, 0)
+
+    strategies = get_strategies()
+    strategy_threads = []
+
+    for strategy in strategies:
+        strategy_module = load_strategy(strategy['filename'])
+        t = threading.Thread(target=strategy_module.run)
+        t.daemon = True
+        t.start()
+        strategy_threads.append(t)
+
     while True:
         # Draw the main menu
-        #choice = draw_main_menu(stdscr, width)
         choice = draw_menu(stdscr,width,menu_title="Main Menu",menu_options=["Settings", "Go Live", "Reports", "Quit ATS"],lastinput_key="q")
+
+        start_event.set()
+        if start_event.is_set():
+            log_win.erase()
+            with log_lock:
+                for i, log_line in enumerate(list(log_buffer)[-5:]):
+                    log_win.addstr(0, 2, f"Recent Logs:".ljust(width))
+                    log_win.addstr(i+1, 2, log_line[:width])
+        log_win.refresh()
 
         if choice == ord('0'):
             manage_settings(stdscr, width)
@@ -55,9 +72,6 @@ def main(stdscr):
             elif confirmation == ord('n'):
                 stdscr.addstr(13, 0, "".ljust(width))  # Clear the quit message
             stdscr.nodelay(True)  # Make getch() non-blocking again
-        
-        # Update the log display
-        display_logs(stdscr, width)
         
         stdscr.refresh()
         time.sleep(0.1)  # To prevent high CPU usage
