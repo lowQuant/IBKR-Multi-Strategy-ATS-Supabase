@@ -16,7 +16,7 @@ def run():
     start_event.wait()
     add_log("Executing Strategy 2")
     while True:
-        time.sleep(9)
-        add_log("S2: Placing a Buy Order in AAPL")
+        time.sleep(1)
+        add_log("S2: DOING NOTHING")
 
     

@@ -32,3 +32,8 @@ def connect_to_IB():
         except:
             add_log('Connection failed. Start TWS or TWS Gateway and try again!')
             return None
+
+def disconnect_from_IB(ib):
+    if ib.isConnected():
+        ib.disconnect()
+        add_log("Disconnected from Interactive Brokers.")

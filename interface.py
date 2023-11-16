@@ -3,7 +3,7 @@ import threading
 
 from setup import setup_database
 from menu_handler import  manage_settings, draw_menu, load_strategy, get_strategies
-from shared_resources import add_log, log_buffer, log_lock, start_event
+from shared_resources import add_log, log_buffer, log_lock, start_event, connect_to_IB, disconnect_from_IB
 
 def main(stdscr):
     # Run the database setup check
@@ -32,11 +32,15 @@ def main(stdscr):
         t.start()
         strategy_threads.append(t)
 
+    CONNECTED = False
+
     while True:
         # Draw the main menu
-        choice = draw_menu(stdscr,width,menu_title="Main Menu",menu_options=["Settings", "Go Live", "Reports", "Quit ATS"],lastinput_key="q")
+        if not CONNECTED:
+            choice = draw_menu(stdscr,width,menu_title="Main Menu",menu_options=["Settings", "Go Live" ,"Reports", "Quit ATS"],lastinput_key="q")
+        else:
+            choice = draw_menu(stdscr,width,menu_title="Main Menu",menu_options=["Settings", "Disconnect","Reports", "Quit ATS"],lastinput_key="q")
 
-        start_event.set()
         if start_event.is_set():
             log_win.erase()
             with log_lock:
@@ -45,23 +49,51 @@ def main(stdscr):
                     log_win.addstr(i+1, 2, log_line[:width])
         log_win.refresh()
 
+        # Manage Settings Menu
         if choice == ord('0'):
             manage_settings(stdscr, width)
+
+        # Going Live & Disconnecting
         elif choice == ord('1'):
-            stdscr.nodelay(False)
-            stdscr.addstr(13, 0, "Are you sure you want to go live? (y/n)".ljust(width))
-            stdscr.refresh()
-            confirmation = stdscr.getch()
-            if confirmation == ord('y'):
-                stdscr.addstr(13, 0, "System is Live".ljust(width))
+            if not CONNECTED:
+                stdscr.nodelay(False)
+                stdscr.addstr(13, 0, "Are you sure you want to go live? (y/n)".ljust(width))
                 stdscr.refresh()
-            elif confirmation == ord('n'):
-                stdscr.addstr(13, 0, "".ljust(width))  # Clear the quit message
-            stdscr.nodelay(True)  # Make getch() non-blocking again
+                confirmation = stdscr.getch()
+
+                if confirmation == ord('y'):
+                    stdscr.addstr(13, 0, "System is Live".ljust(width))
+                    stdscr.refresh()
+                    ib = connect_to_IB()
+                    if ib is not None:
+                        start_event.set()
+                        CONNECTED = True
+                elif confirmation == ord('n'):
+                    stdscr.addstr(13, 0, "".ljust(width))  # Clear the quit message
+                stdscr.nodelay(True)  # Make getch() non-blocking again
+            
+            else:
+                # Disconnect from IB
+                stdscr.nodelay(False)
+                stdscr.addstr(13, 0, "Are you sure you want to disconnect? (y/n)".ljust(width))
+                stdscr.refresh()
+                confirmation = stdscr.getch()
+
+                if confirmation == ord('y'):
+                    disconnect_from_IB(ib)
+                    ib = None  # Reset the IB connection object
+                    CONNECTED = False
+                    start_event.clear()
+                elif confirmation == ord('n'):
+                    stdscr.addstr(13, 0, "".ljust(width))  # Clear the message
+                stdscr.nodelay(True)  # Make getch() non-blocking again
+
+        # Showing Performance Statistics (not implemented)
         elif choice == ord('2'):
             stdscr.addstr(15,2,"Reports chosen")
             stdscr.refresh()
-            # ... handle 'Reports'
+        
+        # Quit the Application
         elif choice == ord('q'):
             stdscr.nodelay(False)  # Make getch() blocking temporarily
             stdscr.addstr(13, 0, "Are you sure you want to quit? (y/n)".ljust(width))
