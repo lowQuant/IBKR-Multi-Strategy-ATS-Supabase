@@ -1,16 +1,221 @@
 import time
-# import pandas as pd
-# import datetime as dt
-from shared_resources import add_log, start_event #ib, add_log, start_event
+import numpy as np
+import pandas as pd
+import datetime as dt
+import yfinance as yf
+import quantstats as qs
+from ib_insync import *
+from shared_resources import ib, add_log, start_event
+from . import helper_functions as hp
+
 
 PARAMS = {
     1:{'name':'Monthly Trendfilter','value': 10,
        'description':"The 10M SMA Trendfilter is used as a sell signal if the price drops below."},
     2:{'name':"Structural Trendfilter",'value':50,
-       'description':"""This filter is used to re-enter the market if the price is below the monthly trendfilter and was below the structural trend, but price just crossed this structural trendline from below."""},
-    3:{'name':'Equity Weight','value':30,'description':'Weight for equity allocation'},
-    4:{'name':'Fixed Income Weight','value':90,'description':'Weight for FI allocation'},
-}
+       'description':"""This filter is used to re-enter the market if the price is below the monthly trendfilter and was below the structural trend, but price just crossed this structural trendline from below."""},}
+#     3:{'name':'Equity Weight','value':30,'description':'Weight for equity allocation'},
+#     4:{'name':'Fixed Income Weight','value':90,'description':'Weight for FI allocation'},
+# }
+
+class BuyAndHold:
+    def __init__(self,strategy_symbol,ib_client, symbol, exchange, currency):
+        self.strategy_symbol = strategy_symbol
+        self.ib_client = ib_client
+        self.symbol = symbol
+        self.currency = currency
+        self.contract = Stock(symbol, exchange, currency)
+
+        # check if invested - write a function that calls target_weight and checks if invested
+        self.current_weight = hp.get_investment_weight(ib=ib_client,symbol=self.symbol)
+        self.target_weight, self.min_weight, self.max_weight = hp.get_allocation_allowance(self.strategy_symbol)
+
+    @staticmethod
+    def check_investment_weight(any_day):
+        pass
+
+    def fetch_data(self):
+        """ Fetch historical data from Interactive Brokers """
+        historical_data = self.ib_client.reqHistoricalData(
+            self.contract,
+            endDateTime='',
+            durationStr='30 Y',
+            barSizeSetting='1 day',
+            whatToShow='TRADES',
+            useRTH=True,
+            formatDate=1
+        )
+        self.df = pd.DataFrame(historical_data)
+        self.df['date'] = pd.to_datetime(self.df['date'])
+        self.df.set_index('date', inplace=True)
+
+        # Calculate 50 Day MA
+        self.df["50D_MA"] = self.df['close'].rolling(window=50).mean()
+
+        # Identify and calculate 10M SMA for last trading day of each month
+        self.df['month'] = self.df.index.to_period('M')
+        self.month_end_df = self.df[self.df.index.day == self.df.index.map(self.last_day_of_month)].copy()
+        self.month_end_df['10M_MA'] = self.month_end_df['close'].rolling(window=10).mean()
+        self.month_end_df['50M_MA'] = self.month_end_df['close'].rolling(window=50).mean()
+
+    @staticmethod
+    def last_day_of_month(any_day):
+        """ Return the last day of the month for a given date """
+        next_month = any_day.replace(day=28) + pd.Timedelta(days=4)
+        return (next_month - pd.Timedelta(days=next_month.day)).day
+
+    def check_conditions_and_trade(self):
+            """ Check the trading conditions and execute trades """
+            today = dt.date.today().isoformat()
+            last_data = df[df.index < today].iloc[-1]
+            last_close = last_data['close']
+
+            latest_10m_ma = self.month_end_df['10M_MA'].iloc[-1]
+            latest_50m_ma = self.month_end_df['50M_MA'].iloc[-1]
+
+            if self.invested and last_close < latest_10m_ma:
+                self.execute_trade('SELL')
+            elif not self.invested and last_close > latest_10m_ma:
+                self.execute_trade('BUY')
+            elif not self.invested and last_close > latest_50m_ma and last_close < latest_10m_ma:
+                self.execute_trade('BUY')
+
+    
+    def backtest(self,yf_symbol = None,start_dt=None,end_dt=None,period=None):
+        '''Backtest for the strategy. yf_symbol: Provide a Yahoo Finance Symbol if backtest should'''
+
+        # Check if month_end_df attribute exists, if not, fetch the data
+        if not hasattr(self, 'df'):
+            self.fetch_data()
+
+        if yf_symbol: # Condition for using Yahoo Finance's historical data
+            self.bt_symbol = yf_symbol
+            if start_dt and end_dt:
+                self.bt_data = yf.download(yf_symbol, start=start_dt, end=end_dt)
+                self.bt_data.rename(columns={'Adj Close': "close"}, inplace=True)
+            else:
+                if period:
+                    self.bt_data = yf.download(yf_symbol, period=period) 
+                    self.bt_data.rename(columns={'Adj Close': "close"}, inplace=True)
+                else: 
+                    self.bt_data = yf.download(yf_symbol)
+                    self.bt_data.rename(columns={'Adj Close': "close"}, inplace=True)
+
+            self.bt_monthly_data = self.bt_data.resample('M').last()
+
+            #Calculate the 10M / 50M Moving Average
+            self.bt_monthly_data["10M_MA"] = self.bt_monthly_data['close'].rolling(window=10).mean()
+            self.bt_monthly_data["50M_MA"] = self.bt_monthly_data['close'].rolling(window=50).mean()
+
+        else:   # Condition for using IBKR's historical data
+            self.bt_symbol = self.symbol
+            self.bt_data = self.df.copy()
+            self.bt_monthly_data = self.month_end_df.copy()
+        
+        # Proceed to map monthly MAs to bt_data
+        
+        for i in range(len(self.bt_data)):
+            current_date = self.bt_data.index[i]
+            prev_month_end = current_date - pd.offsets.MonthEnd(1)
+            try:
+                self.bt_data.at[current_date, "10M_MA"] = self.bt_monthly_data.at[prev_month_end, "10M_MA"]
+                self.bt_data.at[current_date, "50M_MA"] = self.bt_monthly_data.at[prev_month_end, "50M_MA"]
+            except KeyError:
+                pass
+
+        # Drop Data before indicator is warmed-up
+        self.bt_data = self.bt_data.dropna(subset=['10M_MA'])
+
+        # Signal1 is set to 1 if the previous day's adjusted close price is greater than the previous day's 10M MA, indicating a bullish condition.
+        self.bt_data['Signal1'] = np.where(self.bt_data['close'].shift(1) > self.bt_data['10M_MA'].shift(1),1,0)
+
+        # 1. A crossover occurs where the previous day's adjusted close price is above the previous day's 50M MA and
+        #    the adjusted close price from two days ago is below the 50M MA from two days ago. This indicates a bullish crossover.
+        # 2. Signal1 is already set to 1, which implies that the market is bullish based on the 10M MA, so we carry over the bullish sentiment to Signal2
+
+        self.bt_data['Signal2'] = np.where( (self.bt_data['close'].shift(1) > self.bt_data['50M_MA'].shift(1)) & 
+                                            (self.bt_data['close'].shift(2) < self.bt_data['50M_MA'].shift(2)) &
+                                            (self.bt_data['Signal1'] ==0)                                       |
+                                            (self.bt_data['Signal1'] ==1),1, 0)
+
+        self.bt_data['Benchmark_Returns'] = self.bt_data["close"].pct_change().fillna(0)
+        self.bt_data['Strategy_Returns'] = self.bt_data['Signal2'].shift(1)*self.bt_data["close"].pct_change().fillna(0)
+        return self.bt_data
+
+    def create_bt_summary(self,yf_symbol = None,start_dt=None,end_dt=None,period=None):
+        if not hasattr(self, 'bt_data'):
+            self.bt_data = self.backtest(yf_symbol = None,start_dt=None,end_dt=None,period=None)
+
+            qs.reports.html(self.bt_data['Strategy_Returns'],
+                        self.bt_data['Benchmark_Returns'],
+                        title=f"{yf_symbol}_{self.strategy_symbol} vs. {yf_symbol}",
+                        output=f'reports/backtests/{yf_symbol}_BT.html')
+
+        else:
+            qs.reports.html(self.bt_data['Strategy_Returns'],
+                            self.bt_data['Benchmark_Returns'],
+                            title=f"{self.bt_symbol}_{self.strategy_symbol} vs. {self.bt_symbol}",
+                            output=f'reports/backtests/{self.bt_symbol}_{self.strategy_symbol}_BT.html')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

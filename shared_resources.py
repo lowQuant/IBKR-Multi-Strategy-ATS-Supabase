@@ -13,7 +13,11 @@ def add_log(message):
     with log_lock:
         log_buffer.append(f"{time.ctime()}: {message}")
 
+# Declare ib as a global variable
+ib = None
+
 def connect_to_IB():
+    global ib  # Use the global keyword to modify the global instance
     ib = IB()
     try:
         port = supabase.table("settings").select("setting_value").eq('setting_key', 'port').execute().data[0]['setting_value']
