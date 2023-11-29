@@ -6,8 +6,10 @@ import yfinance as yf
 import quantstats as qs
 from ib_insync import *
 from shared_resources import ib, add_log, start_event
-from . import helper_functions as hp
-
+try:
+    from . import helper_functions as hp
+except:
+    import helper_functions as hp
 
 PARAMS = {
     1:{'name':'Monthly Trendfilter','value': 10,
@@ -18,13 +20,14 @@ PARAMS = {
 #     4:{'name':'Fixed Income Weight','value':90,'description':'Weight for FI allocation'},
 # }
 
-class BuyAndHold:
-    def __init__(self,strategy_symbol,ib_client, symbol, exchange, currency):
+class Strategy:
+    def __init__(self,strategy_symbol,ib_client, symbol, exchange, currency,signal2 = False):
         self.strategy_symbol = strategy_symbol
         self.ib_client = ib_client
         self.symbol = symbol
         self.currency = currency
         self.contract = Stock(symbol, exchange, currency)
+        self.signal2 = signal2
 
         # check if invested - write a function that calls target_weight and checks if invested
         self.current_weight = hp.get_investment_weight(ib=ib_client,symbol=self.symbol)
@@ -132,14 +135,17 @@ class BuyAndHold:
         # 1. A crossover occurs where the previous day's adjusted close price is above the previous day's 50M MA and
         #    the adjusted close price from two days ago is below the 50M MA from two days ago. This indicates a bullish crossover.
         # 2. Signal1 is already set to 1, which implies that the market is bullish based on the 10M MA, so we carry over the bullish sentiment to Signal2
-
-        self.bt_data['Signal2'] = np.where( (self.bt_data['close'].shift(1) > self.bt_data['50M_MA'].shift(1)) & 
-                                            (self.bt_data['close'].shift(2) < self.bt_data['50M_MA'].shift(2)) &
-                                            (self.bt_data['Signal1'] ==0)                                       |
-                                            (self.bt_data['Signal1'] ==1),1, 0)
-
+        if self.signal2:
+            self.bt_data['Signal2'] = np.where( (self.bt_data['close'].shift(1) > self.bt_data['50M_MA'].shift(1)) & 
+                                                (self.bt_data['close'].shift(2) < self.bt_data['50M_MA'].shift(2)) &
+                                                (self.bt_data['Signal1'] ==0)                                       |
+                                                (self.bt_data['Signal1'] ==1),1, 0)
+            self.bt_data['Strategy_Returns'] = self.bt_data['Signal2'].shift(1)*self.bt_data["close"].pct_change().fillna(0)
+        else:
+            self.bt_data['Strategy_Returns'] = self.bt_data['Signal1'].shift(1)*self.bt_data["close"].pct_change().fillna(0)
+            
         self.bt_data['Benchmark_Returns'] = self.bt_data["close"].pct_change().fillna(0)
-        self.bt_data['Strategy_Returns'] = self.bt_data['Signal2'].shift(1)*self.bt_data["close"].pct_change().fillna(0)
+        
         return self.bt_data
 
     def create_bt_summary(self,yf_symbol = None,start_dt=None,end_dt=None,period=None):
@@ -149,7 +155,7 @@ class BuyAndHold:
             qs.reports.html(self.bt_data['Strategy_Returns'],
                         self.bt_data['Benchmark_Returns'],
                         title=f"{yf_symbol}_{self.strategy_symbol} vs. {yf_symbol}",
-                        output=f'reports/backtests/{yf_symbol}_BT.html')
+                        output=f'reports/backtests/{yf_symbol}_{self.strategy_symbol}_BT.html')
 
         else:
             qs.reports.html(self.bt_data['Strategy_Returns'],

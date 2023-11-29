@@ -2,7 +2,7 @@ import curses, time
 import threading
 
 from setup import setup_database
-from menu_handler import  manage_settings, draw_menu, load_strategy, get_strategies
+from menu_handler import  manage_settings, draw_menu, load_strategy, get_strategies, manage_reports
 from shared_resources import add_log, log_buffer, log_lock, start_event, connect_to_IB, disconnect_from_IB
 
 def main(stdscr):
@@ -88,10 +88,9 @@ def main(stdscr):
                     stdscr.addstr(13, 0, "".ljust(width))  # Clear the message
                 stdscr.nodelay(True)  # Make getch() non-blocking again
 
-        # Showing Performance Statistics (not implemented)
+        # Showing Performance Statistics (not full yimplemented)
         elif choice == ord('2'):
-            stdscr.addstr(15,2,"Reports chosen")
-            stdscr.refresh()
+            manage_reports(stdscr, width)
         
         # Quit the Application
         elif choice == ord('q'):

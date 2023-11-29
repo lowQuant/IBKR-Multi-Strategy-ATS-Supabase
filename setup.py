@@ -48,6 +48,18 @@ and simply copy & paste the following sql commands:\n\n""")
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+        """)
+        stdscr.addstr("""
+        
+                    PRESS ANY KEY TO CONTINUE
+
+        """)
+
+        stdscr.refresh()
+        stdscr.getch()  # Wait for user input before showing the rest of the SQL
+        stdscr.clear()
+
+        stdscr.addstr(""" Create another table in your Supabase project:
 
         CREATE TABLE portfolio (
             id SERIAL PRIMARY KEY,
@@ -61,7 +73,49 @@ and simply copy & paste the following sql commands:\n\n""")
             last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
         """)
+        stdscr.addstr("""
         
+                    PRESS ANY KEY TO CONTINUE
+
+        """)
+
         stdscr.refresh()
-        stdscr.getch()  # Wait for user input before exiting
+        stdscr.getch()  # Wait for user input before showing the rest of the SQL
+        stdscr.clear()
+
+        stdscr.addstr("""and create another one:
+        
+        CREATE TABLE universe (
+            id SERIAL PRIMARY KEY,
+            asset_type VARCHAR(255) NOT NULL,
+            symbol VARCHAR(255) NOT NULL,
+            name TEXT,
+            sector VARCHAR(255),
+            strategies TEXT[], -- array of text for possible strategies
+            exchange VARCHAR(255),
+            currency VARCHAR(255),
+            tradingclass VARCHAR(255)
+        );
+        """)
+
+        stdscr.addstr("""
+        
+                    PRESS ANY KEY TO CONTINUE
+
+        """)
+
+        stdscr.refresh()
+        stdscr.getch()  # Wait for user input before showing the rest of the SQL
+        stdscr.clear()
+
+        stdscr.addstr("""
+
+        Now add a ".env" file to the directory and create the following keys: 
+
+        SUPABASE_URL= YOUR_PROJECT_URL
+        SUPABASE_KEY= YOUR_KEY
+
+        If you followed all instructions, you may now restart the application.
+        """)
+        stdscr.refresh()
         return False

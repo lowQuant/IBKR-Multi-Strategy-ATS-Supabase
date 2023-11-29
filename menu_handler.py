@@ -2,7 +2,8 @@
 import curses, textwrap, importlib.util
 from supabase import create_client
 from dotenv import load_dotenv
-import os
+import os, traceback
+from shared_resources import connect_to_IB
 
 load_dotenv()
 
@@ -91,6 +92,28 @@ def prompt_user(win, prompt, y, input_x, visible_length, total_length, width):
     curses.noecho()
     return input_str
 
+def prompt_yes_no(win, prompt, y, input_x, width):
+    """
+    Prompt the user with a yes/no question and return a boolean based on the response.
+    """
+    valid_responses = {'y': True, 'Y': True, 'n': False, 'N': False}
+    response = None
+
+    while response not in valid_responses:
+        win.addstr(y, input_x, prompt + " (y/n): ")
+        win.refresh()
+        response = win.getkey()  # getkey() waits for a key press and returns the pressed character
+
+        if response not in valid_responses:
+            win.addstr(y + 1, 2, "Invalid input. Please enter 'y' or 'n'.")
+            win.refresh()
+            curses.napms(1000)  # Wait for 1 second
+            win.move(y + 1, 2)
+            win.clrtoeol()  # Clear the error message
+
+    return valid_responses[response]
+
+
 def add_strategy(stdscr):
     height, width = stdscr.getmaxyx()
     curses.echo()
@@ -175,6 +198,132 @@ def add_strategy(stdscr):
         stdscr.nodelay(True)
         win.clear() # Clear the window and return to the main screen
         win.refresh()
+
+def manage_backtests(stdscr,width):
+    # Fetch strategies from Supabase
+    strategies = supabase.table("strategies").select("*").execute()
+    stdscr.clear()
+    # header
+    stdscr.addstr(0, 0, "=" * width)
+    title = "Multi Strategy Automated Trading System by Lange Invest"
+    stdscr.addstr(1, (width - len(title)) // 2, title)
+    stdscr.addstr(2, 0, "=" * width)
+    header = "Choose a Strategy"
+    stdscr.addstr(5, (width // 2) - len(header) // 2, header)
+    stdscr.addstr(6, (width // 2) - len(header) // 2, "-" * len(header))
+    
+    # if no strategy in Supabase
+    if len(strategies.data) == 0:
+        stdscr.addstr(8,(width // 2) - len(header) // 2, "No Strategy in Database")
+    else:
+        line = 8
+        for strat,i in zip(strategies.data,range(1,len(strategies.data)+1)):
+            stdscr.addstr(line, (width // 2) - len(header) // 2, f"{i}. {strat['name']} ({strat['symbol']})".ljust(40))
+            line += 1
+
+        stdscr.addstr(line + 5, (width // 2) - len(header) // 2, "b. back")
+        stdscr.refresh()
+
+    # Sub Menu for individual Strategies
+    while True:
+        sub_choice = stdscr.getch()
+        if sub_choice == ord('b'):
+            break
+        elif sub_choice in [ord(str(i)) for i in range(1, len(strategies.data) + 1)]:
+            strategy_num = int(chr(sub_choice))
+            selected_strategy = strategies.data[strategy_num - 1]
+
+             # Load the strategy module
+            strategy_module = load_strategy(selected_strategy['filename'])
+            strategy_symbol = selected_strategy['symbol']
+
+            # Create a new window for the form and display a border
+            height, width = stdscr.getmaxyx()
+            curses.echo()
+            win = curses.newwin(height, width, 0, 0)
+            win.box()
+
+            # Fixed positions for the input cursor
+            input_x = max(width // 4, 30)  # Adjust the x value as needed for layout
+
+            # Input fields
+            
+            symbol = prompt_user(win, "Enter symbol: ", 5, input_x, visible_length=60,total_length=100, width=width)
+            win.addstr(7, 2, "If you want to use Yahoo Finance instead of IB, enter yf symbol below, if not press enter.")
+            win.refresh()
+            yf_symbol = prompt_user(win,"Enter yfinance symbol: ", 8, input_x, visible_length=60, total_length=20, width=width)
+            exchange = prompt_user(win, "Enter exchange: ", 10, input_x, visible_length=60, total_length=20, width=width)
+            currency = prompt_user(win, "Enter currency: ",12, input_x, visible_length=60, total_length=10, width=width)
+            signal2 = prompt_yes_no(win, "Do you want to use the second signal to re-enter the market?", 14, 2, width)
+
+            curses.noecho()
+            curses.curs_set(0)  # Hide cursor after inputs
+
+             # Confirmation before saving
+            win.addstr(15, 2, f"""Run a backtest for the strategy '{selected_strategy['name']}' for {selected_strategy['symbol'].upper()}? (y/n): """)
+            win.refresh()
+            confirmation = win.getch()
+            if confirmation in [ord('n'), ord('N')]:
+                win.addstr(16, 2, "Operation cancelled. Press any key to continue...")
+                win.refresh()
+                stdscr.nodelay(False) 
+                stdscr.getch()
+                stdscr.nodelay(True) 
+                return  # Return without saving
+            
+            if confirmation in [ord('y'), ord('Y')]:
+                win.addstr(16, 2, "Calculating...please be patient")
+                win.refresh()
+                try:
+                    ib_client = connect_to_IB()
+                    # Instantiate the strategy class and call create_bt_summary
+                    if hasattr(strategy_module, 'Strategy'):
+                        strategy_instance = strategy_module.Strategy(strategy_symbol, ib_client, symbol, exchange, currency,signal2)
+                        if yf_symbol:
+                            strategy_instance.create_bt_summary(yf_symbol)
+                        else:
+                            strategy_instance.create_bt_summary()
+                        win.addstr(16, 2, "Backtest was successful. Find the results in the reports folder. Press any key to continue.")
+                except Exception as e:
+                    error_msg = traceback.format_exc()
+                    win.addstr(17, 2, f"Error: {error_msg}")
+                    pass
+                
+                win.refresh()
+
+                stdscr.nodelay(False) 
+                stdscr.getch()  # Wait for user input before continuing
+                stdscr.nodelay(True)
+                win.clear() # Clear the window and return to the main screen
+                win.refresh()
+                return
+                
+
+def manage_reports(stdscr, width):
+    draw_menu(stdscr,width,menu_title="Reports",menu_options=["Strategy Reports","Account Information", "Back"])
+    while True:
+        choice = stdscr.getch()
+
+        if choice == ord('0'):
+            draw_menu(stdscr,width,"Strategy Reports",menu_options=["Strategy Backtests", "Strategy Live Reports","Back"])
+            while True:
+                sub_choice = stdscr.getch()
+                if sub_choice == ord('0'):
+                    manage_backtests(stdscr,width)
+
+                elif sub_choice == ord('1'):
+                    # Strategy Live Reports
+                    pass
+                elif sub_choice == ord('b'):
+                    break
+
+        elif choice == ord('1'):
+            # Account Information here
+            pass
+
+        elif choice == ord('b'):
+            break
+
 
 def manage_settings(stdscr, width):
     # Display the settings menu
